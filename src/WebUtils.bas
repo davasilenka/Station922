@@ -16,6 +16,9 @@
 #include once "HttpOptionsProcessor.bi"
 #include once "HttpPutProcessor.bi"
 #include once "HttpTraceProcessor.bi"
+#include once "HttpCgiProcessor.bi"
+#include once "CgiProcess.bi"
+#include once "CgiAsyncTask.bi"
 #include once "WebSiteCollection.bi"
 #include once "WebServer.bi"
 
@@ -495,6 +498,14 @@ Public Function Station922Initialize()As HRESULT
 			IWebSite_SetDirectoryListing(pIWebSite, pWebSiteConfig[i].EnableDirectoryListing)
 			IWebSite_SetGetAllFiles(pIWebSite, pWebSiteConfig[i].EnableGetAllFiles)
 
+			IWebSite_SetCgiEnabled(pIWebSite, pWebSiteConfig[i].CgiEnabled)
+			IWebSite_SetCgiExtensions(pIWebSite, pWebSiteConfig[i].CgiExtensions)
+			IWebSite_SetCgiTimeout(pIWebSite, pWebSiteConfig[i].CgiTimeout)
+			IWebSite_SetCgiMaxInputSize(pIWebSite, pWebSiteConfig[i].CgiMaxInputSize)
+			IWebSite_SetCgiMaxOutputSize(pIWebSite, pWebSiteConfig[i].CgiMaxOutputSize)
+			IWebSite_SetCgiInterpreters(pIWebSite, pWebSiteConfig[i].CgiInterpreters)
+			IWebSite_SetCgiAllowedDirs(pIWebSite, pWebSiteConfig[i].CgiAllowedDirs)
+
 			WebSites.Vector(i) = pIWebSite
 		Next
 	End Scope
@@ -528,9 +539,33 @@ Public Function Station922Initialize()As HRESULT
 		IWebSite_SetUseSsl(pIDefaultWebSite, DefaultWebSiteConfig.UseSsl)
 		IWebSite_SetDirectoryListing(pIDefaultWebSite, DefaultWebSiteConfig.EnableDirectoryListing)
 		IWebSite_SetGetAllFiles(pIDefaultWebSite, DefaultWebSiteConfig.EnableGetAllFiles)
+
+		IWebSite_SetCgiEnabled(pIDefaultWebSite, DefaultWebSiteConfig.CgiEnabled)
+		IWebSite_SetCgiExtensions(pIDefaultWebSite, DefaultWebSiteConfig.CgiExtensions)
+		IWebSite_SetCgiTimeout(pIDefaultWebSite, DefaultWebSiteConfig.CgiTimeout)
+		IWebSite_SetCgiMaxInputSize(pIDefaultWebSite, DefaultWebSiteConfig.CgiMaxInputSize)
+		IWebSite_SetCgiMaxOutputSize(pIDefaultWebSite, DefaultWebSiteConfig.CgiMaxOutputSize)
+		IWebSite_SetCgiInterpreters(pIDefaultWebSite, DefaultWebSiteConfig.CgiInterpreters)
+		IWebSite_SetCgiAllowedDirs(pIDefaultWebSite, DefaultWebSiteConfig.CgiAllowedDirs)
 	End Scope
 
 	Scope
+		' -- регистрация HttpCgiProcessor ПЕРЕД статическими процессорами --
+		Dim pICgiProcessor As IHttpAsyncProcessor Ptr = NULL
+		Dim CgiKey As HeapBSTR = CreatePermanentHeapStringLen(pIMemoryAllocator, WStr("CGI"), Len(WStr("CGI")))
+		If CgiKey Then
+			Dim hrCgiProc As HRESULT = CreateHttpCgiProcessor(pIMemoryAllocator, @IID_IHttpCgiAsyncProcessor, @pICgiProcessor)
+			If SUCCEEDED(hrCgiProc) AndAlso pICgiProcessor Then
+				For i As Integer = 0 To WebSitesLength - 1
+					If pWebSiteConfig[i].CgiEnabled Then
+						IWebSite_AddHttpProcessor(WebSites.Vector(i), CgiKey, pICgiProcessor)
+					End If
+				Next
+				IHttpAsyncProcessor_Release(pICgiProcessor)
+			End If
+		End If
+		If CgiKey Then HeapSysFreeString(CgiKey)
+
 		For j As Integer = 0 To WebSitesLength - 1
 			Dim MethodsLength As Integer = SysStringLen(pWebSiteConfig[j].Methods)
 
@@ -656,6 +691,11 @@ Public Function Station922Initialize()As HRESULT
 			HeapSysFreeString(pWebSiteConfig[i].CodePage)
 			HeapSysFreeString(pWebSiteConfig[i].Methods)
 			HeapSysFreeString(pWebSiteConfig[i].DefaultFileName)
+			HeapSysFreeString(pWebSiteConfig[i].UserName)
+			HeapSysFreeString(pWebSiteConfig[i].Password)
+			HeapSysFreeString(pWebSiteConfig[i].CgiExtensions)
+			HeapSysFreeString(pWebSiteConfig[i].CgiInterpreters)
+			HeapSysFreeString(pWebSiteConfig[i].CgiAllowedDirs)
 		Next
 
 		IMalloc_Free(pIMemoryAllocator, pWebSiteConfig)

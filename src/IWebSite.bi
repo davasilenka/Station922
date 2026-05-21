@@ -196,6 +196,79 @@ Type IWebSiteVirtualTable
 		ByVal pPassword As HeapBSTR _
 	)As HRESULT
 
+	' ============================== CGI getters ==============================
+	GetCgiEnabled As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pEnabled As BOOL Ptr _
+	)As HRESULT
+
+	GetCgiExtensions As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal ppExtensions As HeapBSTR Ptr _
+	)As HRESULT
+
+	GetCgiTimeout As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwTimeout As DWORD Ptr _
+	)As HRESULT
+
+	GetCgiMaxInputSize As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwMaxInput As DWORD Ptr _
+	)As HRESULT
+
+	GetCgiMaxOutputSize As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwMaxOutput As DWORD Ptr _
+	)As HRESULT
+
+	GetCgiInterpreter As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pszExt As WString Ptr, _
+		ByVal ppInterpreter As HeapBSTR Ptr _
+	)As HRESULT
+
+	GetCgiAllowedDirs As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal ppDirs As HeapBSTR Ptr _
+	)As HRESULT
+
+	' ============================== CGI setters ==============================
+	SetCgiEnabled As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal Enabled As BOOL _
+	)As HRESULT
+
+	SetCgiExtensions As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pExtensions As HeapBSTR _
+	)As HRESULT
+
+	SetCgiTimeout As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwTimeout As DWORD _
+	)As HRESULT
+
+	SetCgiMaxInputSize As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwMaxInput As DWORD _
+	)As HRESULT
+
+	SetCgiMaxOutputSize As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwMaxOutput As DWORD _
+	)As HRESULT
+
+	SetCgiInterpreters As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pInterpreters As HeapBSTR _
+	)As HRESULT
+
+	SetCgiAllowedDirs As Function( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pDirs As HeapBSTR _
+	)As HRESULT
+
 End Type
 
 Type IWebSite_
@@ -234,5 +307,21 @@ End Type
 #define IWebSite_SetAllMethods(self, pMethods) (self)->lpVtbl->SetAllMethods(self, pMethods)
 #define IWebSite_SetUserName(self, pUserName) (self)->lpVtbl->SetUserName(self, pUserName)
 #define IWebSite_SetPassword(self, pPassword) (self)->lpVtbl->SetPassword(self, pPassword)
+
+#define IWebSite_GetCgiEnabled(self, pEnabled) (self)->lpVtbl->GetCgiEnabled(self, pEnabled)
+#define IWebSite_GetCgiExtensions(self, ppExtensions) (self)->lpVtbl->GetCgiExtensions(self, ppExtensions)
+#define IWebSite_GetCgiTimeout(self, pdwTimeout) (self)->lpVtbl->GetCgiTimeout(self, pdwTimeout)
+#define IWebSite_GetCgiMaxInputSize(self, pdwMaxInput) (self)->lpVtbl->GetCgiMaxInputSize(self, pdwMaxInput)
+#define IWebSite_GetCgiMaxOutputSize(self, pdwMaxOutput) (self)->lpVtbl->GetCgiMaxOutputSize(self, pdwMaxOutput)
+#define IWebSite_GetCgiInterpreter(self, pszExt, ppInterpreter) (self)->lpVtbl->GetCgiInterpreter(self, pszExt, ppInterpreter)
+#define IWebSite_GetCgiAllowedDirs(self, ppDirs) (self)->lpVtbl->GetCgiAllowedDirs(self, ppDirs)
+
+#define IWebSite_SetCgiEnabled(self, Enabled) (self)->lpVtbl->SetCgiEnabled(self, Enabled)
+#define IWebSite_SetCgiExtensions(self, pExtensions) (self)->lpVtbl->SetCgiExtensions(self, pExtensions)
+#define IWebSite_SetCgiTimeout(self, dwTimeout) (self)->lpVtbl->SetCgiTimeout(self, dwTimeout)
+#define IWebSite_SetCgiMaxInputSize(self, dwMaxInput) (self)->lpVtbl->SetCgiMaxInputSize(self, dwMaxInput)
+#define IWebSite_SetCgiMaxOutputSize(self, dwMaxOutput) (self)->lpVtbl->SetCgiMaxOutputSize(self, dwMaxOutput)
+#define IWebSite_SetCgiInterpreters(self, pInterpreters) (self)->lpVtbl->SetCgiInterpreters(self, pInterpreters)
+#define IWebSite_SetCgiAllowedDirs(self, pDirs) (self)->lpVtbl->SetCgiAllowedDirs(self, pDirs)
 
 #endif

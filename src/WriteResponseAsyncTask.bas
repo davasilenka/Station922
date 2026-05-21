@@ -433,8 +433,8 @@ Private Function WriteResponseAsyncTaskPrepare( _
 		Dim IsSiteMoved As Boolean = Any
 		IWebSite_GetIsMoved(self->pIWebSiteWeakPtr, @IsSiteMoved)
 
-		' TODO Грязный хак с robots.txt
-		' если запрошен документ /robots.txt то не перенаправлять
+		' TODO пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅ robots.txt
+		' пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ /robots.txt пїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 		' Dim IsSiteMoved As Boolean = Any
 
 		' Dim ClientURI As IClientUri Ptr = Any
@@ -455,22 +455,46 @@ Private Function WriteResponseAsyncTaskPrepare( _
 	End Scope
 
 	Scope
-		Dim HttpMethod As HeapBSTR = Any
-		IClientRequest_GetHttpMethod(self->pIRequest, @HttpMethod)
-
 		Dim pIProcessorsWeakPtr As IHttpProcessorCollection Ptr = Any
 		IWebSite_GetProcessorCollectionWeakPtr( _
 			self->pIWebSiteWeakPtr, _
 			@pIProcessorsWeakPtr _
 		)
 
-		Dim hrProcessorItem As HRESULT = IHttpProcessorCollection_ItemWeakPtr( _
-			pIProcessorsWeakPtr, _
-			HttpMethod, _
-			@self->pIProcessorWeakPtr _
-		)
+		Dim NeedCgi As Boolean = Any
+		Scope
+			Dim pClientUri As IClientUri Ptr = Any
+			IClientRequest_GetUri(self->pIRequest, @pClientUri)
+			If pClientUri Then
+				Dim Path As HeapBSTR = Any
+				IClientUri_GetPath(pClientUri, @Path)
+				IWebSite_NeedCgiProcessing(self->pIWebSiteWeakPtr, Path, @NeedCgi)
+				HeapSysFreeString(Path)
+				IClientUri_Release(pClientUri)
+			Else
+				NeedCgi = False
+			End If
+		End Scope
 
-		HeapSysFreeString(HttpMethod)
+		Dim hrProcessorItem As HRESULT
+		If NeedCgi Then
+			hrProcessorItem = IHttpProcessorCollection_ItemWeakPtr( _
+				pIProcessorsWeakPtr, _
+				WStr("CGI"), _
+				@self->pIProcessorWeakPtr _
+			)
+		Else
+			Dim HttpMethod As HeapBSTR = Any
+			IClientRequest_GetHttpMethod(self->pIRequest, @HttpMethod)
+
+			hrProcessorItem = IHttpProcessorCollection_ItemWeakPtr( _
+				pIProcessorsWeakPtr, _
+				HttpMethod, _
+				@self->pIProcessorWeakPtr _
+			)
+
+			HeapSysFreeString(HttpMethod)
+		End If
 
 		If FAILED(hrProcessorItem) Then
 			Return HTTPPROCESSOR_E_NOTIMPLEMENTED

@@ -385,7 +385,7 @@ Private Function GetWebSitePhisycalDir( _
 		ByVal pbstrPhisycalDir As HeapBSTR Ptr _
 	)As HRESULT
 
-	Const PhisycalDirKeyString = WStr("PhisycalDir")
+	Const PhisycalDirKeyString = WStr("PhysicalDir")
 
 	Dim pPhisycalDir As WString Ptr = Any
 	Dim StringLength As Integer = Any
@@ -980,6 +980,199 @@ Private Function GetWebSiteEnableGetAllFiles( _
 
 End Function
 
+Private Function GetWebSiteCgiEnabled( _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr _
+	)As Boolean
+
+	Const EnableCgiKeyString = WStr("EnableCgi")
+
+	Dim bEnable As INT_ = GetPrivateProfileIntW( _
+		lpwszHost, _
+		@EnableCgiKeyString, _
+		0, _
+		pWebSitesIniFileName _
+	)
+
+	If bEnable Then
+		Return True
+	End If
+
+	Return False
+
+End Function
+
+Private Function GetWebSiteCgiExtensions( _
+		ByVal pIMemoryAllocator As IMalloc Ptr, _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr, _
+		ByVal pbstrCgiExtensions As HeapBSTR Ptr _
+	)As HRESULT
+
+	Const CgiExtensionsKeyString = WStr("CgiExtensions")
+
+	Dim Extensions As WString * (MAX_PATH + 1) = Any
+	Dim ValueLength As DWORD = GetPrivateProfileStringW( _
+		lpwszHost, _
+		@CgiExtensionsKeyString, _
+		NULL, _
+		@Extensions, _
+		Cast(DWORD, MAX_PATH), _
+		pWebSitesIniFileName _
+	)
+
+	If ValueLength = 0 Then
+		Extensions[0] = Characters.NullChar
+	End If
+
+	Dim bstrExtensions As HeapBSTR = CreatePermanentHeapStringLen( _
+		pIMemoryAllocator, _
+		@Extensions, _
+		ValueLength _
+	)
+	If bstrExtensions = NULL Then
+		*pbstrCgiExtensions = NULL
+		Return E_OUTOFMEMORY
+	End If
+
+	*pbstrCgiExtensions = bstrExtensions
+
+	Return S_OK
+
+End Function
+
+Private Function GetWebSiteCgiTimeout( _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr _
+	)As DWORD
+
+	Const CgiTimeoutKeyString = WStr("CgiTimeout")
+
+	Dim CgiTimeout As INT_ = GetPrivateProfileIntW( _
+		lpwszHost, _
+		@CgiTimeoutKeyString, _
+		0, _
+		pWebSitesIniFileName _
+	)
+
+	Return CUInt(CgiTimeout)
+
+End Function
+
+Private Function GetWebSiteCgiMaxInputSize( _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr _
+	)As DWORD
+
+	Const CgiMaxInputSizeKeyString = WStr("CgiMaxInputSize")
+
+	Dim MaxInputSize As INT_ = GetPrivateProfileIntW( _
+		lpwszHost, _
+		@CgiMaxInputSizeKeyString, _
+		0, _
+		pWebSitesIniFileName _
+	)
+
+	Return CUInt(MaxInputSize)
+
+End Function
+
+Private Function GetWebSiteCgiMaxOutputSize( _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr _
+	)As DWORD
+
+	Const CgiMaxOutputSizeKeyString = WStr("CgiMaxOutputSize")
+
+	Dim MaxOutputSize As INT_ = GetPrivateProfileIntW( _
+		lpwszHost, _
+		@CgiMaxOutputSizeKeyString, _
+		0, _
+		pWebSitesIniFileName _
+	)
+
+	Return CUInt(MaxOutputSize)
+
+End Function
+
+Private Function GetWebSiteCgiInterpreters( _
+		ByVal pIMemoryAllocator As IMalloc Ptr, _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr, _
+		ByVal pbstrCgiInterpreters As HeapBSTR Ptr _
+	)As HRESULT
+
+	Const CgiInterpretersKeyString = WStr("CgiInterpreters")
+
+	Dim Interpreters As WString * (MAX_PATH + 1) = Any
+	Dim ValueLength As DWORD = GetPrivateProfileStringW( _
+		lpwszHost, _
+		@CgiInterpretersKeyString, _
+		NULL, _
+		@Interpreters, _
+		Cast(DWORD, MAX_PATH), _
+		pWebSitesIniFileName _
+	)
+
+	If ValueLength = 0 Then
+		Interpreters[0] = Characters.NullChar
+	End If
+
+	Dim bstrInterpreters As HeapBSTR = CreatePermanentHeapStringLen( _
+		pIMemoryAllocator, _
+		@Interpreters, _
+		ValueLength _
+	)
+	If bstrInterpreters = NULL Then
+		*pbstrCgiInterpreters = NULL
+		Return E_OUTOFMEMORY
+	End If
+
+	*pbstrCgiInterpreters = bstrInterpreters
+
+	Return S_OK
+
+End Function
+
+Private Function GetWebSiteCgiAllowedDirs( _
+		ByVal pIMemoryAllocator As IMalloc Ptr, _
+		ByVal pWebSitesIniFileName As WString Ptr, _
+		ByVal lpwszHost As WString Ptr, _
+		ByVal pbstrCgiAllowedDirs As HeapBSTR Ptr _
+	)As HRESULT
+
+	Const CgiAllowedDirsKeyString = WStr("CgiAllowedDirs")
+
+	Dim AllowedDirs As WString * (MAX_PATH + 1) = Any
+	Dim ValueLength As DWORD = GetPrivateProfileStringW( _
+		lpwszHost, _
+		@CgiAllowedDirsKeyString, _
+		NULL, _
+		@AllowedDirs, _
+		Cast(DWORD, MAX_PATH), _
+		pWebSitesIniFileName _
+	)
+
+	If ValueLength = 0 Then
+		AllowedDirs[0] = Characters.NullChar
+	End If
+
+	Dim bstrAllowedDirs As HeapBSTR = CreatePermanentHeapStringLen( _
+		pIMemoryAllocator, _
+		@AllowedDirs, _
+		ValueLength _
+	)
+	If bstrAllowedDirs = NULL Then
+		*pbstrCgiAllowedDirs = NULL
+		Return E_OUTOFMEMORY
+	End If
+
+	*pbstrCgiAllowedDirs = bstrAllowedDirs
+
+	Return S_OK
+
+End Function
+
 Private Function GetWebSite( _
 		ByVal pIMemoryAllocator As IMalloc Ptr, _
 		ByVal pWebSitesIniFileName As WString Ptr, _
@@ -1228,6 +1421,83 @@ Private Function GetWebSite( _
 			lpwszHost _
 		)
 		pWebSite->EnableGetAllFiles = EnableGetAllFiles
+	End Scope
+
+	Scope
+		Dim CgiEnabled As Boolean = GetWebSiteCgiEnabled( _
+			pWebSitesIniFileName, _
+			lpwszHost _
+		)
+		pWebSite->CgiEnabled = CgiEnabled
+	End Scope
+
+	Scope
+		Dim bstrCgiExtensions As HeapBSTR = Any
+		Dim hrCgiExtensions As HRESULT = GetWebSiteCgiExtensions( _
+			pIMemoryAllocator, _
+			pWebSitesIniFileName, _
+			lpwszHost, _
+			@bstrCgiExtensions _
+		)
+		If FAILED(hrCgiExtensions) Then
+			Return hrCgiExtensions
+		End If
+
+		pWebSite->CgiExtensions = bstrCgiExtensions
+	End Scope
+
+	Scope
+		Dim Timeout As DWORD = GetWebSiteCgiTimeout( _
+			pWebSitesIniFileName, _
+			lpwszHost _
+		)
+		pWebSite->CgiTimeout = Timeout
+	End Scope
+
+	Scope
+		Dim MaxInputSize As DWORD = GetWebSiteCgiMaxInputSize( _
+			pWebSitesIniFileName, _
+			lpwszHost _
+		)
+		pWebSite->CgiMaxInputSize = MaxInputSize
+	End Scope
+
+	Scope
+		Dim MaxOutputSize As DWORD = GetWebSiteCgiMaxOutputSize( _
+			pWebSitesIniFileName, _
+			lpwszHost _
+		)
+		pWebSite->CgiMaxOutputSize = MaxOutputSize
+	End Scope
+
+	Scope
+		Dim bstrCgiInterpreters As HeapBSTR = Any
+		Dim hrCgiInterpreters As HRESULT = GetWebSiteCgiInterpreters( _
+			pIMemoryAllocator, _
+			pWebSitesIniFileName, _
+			lpwszHost, _
+			@bstrCgiInterpreters _
+		)
+		If FAILED(hrCgiInterpreters) Then
+			Return hrCgiInterpreters
+		End If
+
+		pWebSite->CgiInterpreters = bstrCgiInterpreters
+	End Scope
+
+	Scope
+		Dim bstrCgiAllowedDirs As HeapBSTR = Any
+		Dim hrCgiAllowedDirs As HRESULT = GetWebSiteCgiAllowedDirs( _
+			pIMemoryAllocator, _
+			pWebSitesIniFileName, _
+			lpwszHost, _
+			@bstrCgiAllowedDirs _
+		)
+		If FAILED(hrCgiAllowedDirs) Then
+			Return hrCgiAllowedDirs
+		End If
+
+		pWebSite->CgiAllowedDirs = bstrCgiAllowedDirs
 	End Scope
 
 	Return S_OK

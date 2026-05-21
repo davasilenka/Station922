@@ -504,13 +504,37 @@ DEPENDENCIES_38=src$(PATH_SEP)WriteResponseAsyncTask.bas src$(PATH_SEP)WriteResp
 $(OBJ_DEBUG_DIR)$(PATH_SEP)WriteResponseAsyncTask$(FILE_SUFFIX).c: $(DEPENDENCIES_38)
 $(OBJ_RELEASE_DIR)$(PATH_SEP)WriteResponseAsyncTask$(FILE_SUFFIX).c: $(DEPENDENCIES_38)
 
+OBJECTFILES_DEBUG+=$(OBJ_DEBUG_DIR)$(PATH_SEP)CgiProcess$(FILE_SUFFIX).o
+OBJECTFILES_RELEASE+=$(OBJ_RELEASE_DIR)$(PATH_SEP)CgiProcess$(FILE_SUFFIX).o
+
+DEPENDENCIES_39=src$(PATH_SEP)CgiProcess.bas src$(PATH_SEP)CgiProcess.bi
+
+$(OBJ_DEBUG_DIR)$(PATH_SEP)CgiProcess$(FILE_SUFFIX).c: $(DEPENDENCIES_39)
+$(OBJ_RELEASE_DIR)$(PATH_SEP)CgiProcess$(FILE_SUFFIX).c: $(DEPENDENCIES_39)
+
+OBJECTFILES_DEBUG+=$(OBJ_DEBUG_DIR)$(PATH_SEP)CgiAsyncTask$(FILE_SUFFIX).o
+OBJECTFILES_RELEASE+=$(OBJ_RELEASE_DIR)$(PATH_SEP)CgiAsyncTask$(FILE_SUFFIX).o
+
+DEPENDENCIES_40=src$(PATH_SEP)CgiAsyncTask.bas src$(PATH_SEP)CgiAsyncTask.bi src$(PATH_SEP)ICgiAsyncIoTask.bi src$(PATH_SEP)IAsyncIoTask.bi src$(PATH_SEP)IAsyncResult.bi
+
+$(OBJ_DEBUG_DIR)$(PATH_SEP)CgiAsyncTask$(FILE_SUFFIX).c: $(DEPENDENCIES_40)
+$(OBJ_RELEASE_DIR)$(PATH_SEP)CgiAsyncTask$(FILE_SUFFIX).c: $(DEPENDENCIES_40)
+
+OBJECTFILES_DEBUG+=$(OBJ_DEBUG_DIR)$(PATH_SEP)HttpCgiProcessor$(FILE_SUFFIX).o
+OBJECTFILES_RELEASE+=$(OBJ_RELEASE_DIR)$(PATH_SEP)HttpCgiProcessor$(FILE_SUFFIX).o
+
+DEPENDENCIES_41=src$(PATH_SEP)HttpCgiProcessor.bas src$(PATH_SEP)HttpCgiProcessor.bi src$(PATH_SEP)IHttpCgiAsyncProcessor.bi src$(PATH_SEP)IHttpAsyncProcessor.bi src$(PATH_SEP)IClientRequest.bi src$(PATH_SEP)IClientUri.bi src$(PATH_SEP)IString.bi src$(PATH_SEP)Http.bi src$(PATH_SEP)IHttpAsyncReader.bi src$(PATH_SEP)IAsyncResult.bi src$(PATH_SEP)IBaseAsyncStream.bi src$(PATH_SEP)IHttpAsyncWriter.bi src$(PATH_SEP)IAttributedAsyncStream.bi src$(PATH_SEP)Mime.bi src$(PATH_SEP)IServerResponse.bi src$(PATH_SEP)IWebSite.bi src$(PATH_SEP)IHttpProcessorCollection.bi src$(PATH_SEP)IEnumHttpProcessor.bi src$(PATH_SEP)ArrayStringWriter.bi src$(PATH_SEP)CharacterConstants.bi src$(PATH_SEP)HeapBSTR.bi src$(PATH_SEP)WebUtils.bi src$(PATH_SEP)IThreadPool.bi src$(PATH_SEP)IWebSiteCollection.bi src$(PATH_SEP)IEnumWebSite.bi
+
+$(OBJ_DEBUG_DIR)$(PATH_SEP)HttpCgiProcessor$(FILE_SUFFIX).c: $(DEPENDENCIES_41)
+$(OBJ_RELEASE_DIR)$(PATH_SEP)HttpCgiProcessor$(FILE_SUFFIX).c: $(DEPENDENCIES_41)
+
 OBJECTFILES_DEBUG+=$(OBJ_DEBUG_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj
 OBJECTFILES_RELEASE+=$(OBJ_RELEASE_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj
 
-DEPENDENCIES_39=src$(PATH_SEP)Resources.RC src$(PATH_SEP)Resources.RH src$(PATH_SEP)manifest.xml
+DEPENDENCIES_42=src$(PATH_SEP)Resources.RC src$(PATH_SEP)Resources.RH src$(PATH_SEP)manifest.xml
 
-$(OBJ_DEBUG_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj: $(DEPENDENCIES_39)
-$(OBJ_RELEASE_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj: $(DEPENDENCIES_39)
+$(OBJ_DEBUG_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj: $(DEPENDENCIES_42)
+$(OBJ_RELEASE_DIR)$(PATH_SEP)Resources$(FILE_SUFFIX).obj: $(DEPENDENCIES_42)
 
 release: $(BIN_RELEASE_DIR)$(PATH_SEP)$(OUTPUT_FILE_NAME)
 

@@ -23,7 +23,7 @@ Const WebSocketVersionString = WStr("13")
 Const HeadersExtensionString = WStr(".headers")
 Const QuoteString = WStr("""")
 
-' Размер буфера в символах для записи в него кода html страницы с ошибкой
+' пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ html пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 Const MaxHttpErrorBuffer As Integer = 1024 - 1
 
 Const MovedPermanently = WStr("Moved Permanently.")
@@ -93,6 +93,14 @@ Type WebSite
 	IsMoved As Boolean
 	EnableDirectoryListing As Boolean
 	EnableGetAllFiles As Boolean
+	' ---------- CGI fields ----------
+	CgiEnabled As BOOL
+	CgiExtensions As HeapBSTR
+	CgiTimeout As DWORD
+	CgiMaxInputSize As DWORD
+	CgiMaxOutputSize As DWORD
+	CgiInterpreters As HeapBSTR
+	CgiAllowedDirs As HeapBSTR
 End Type
 
 Type FileIteratorW
@@ -284,9 +292,9 @@ Private Function WebSiteHttpAuthUtil( _
 
 	UsernamePasswordUtf8[dwUsernamePasswordUtf8Length] = Characters.NullChar
 
-	' Из массива байт в строку
-	' Преобразуем utf8 в WString
-	' -1 — значит, длина строки будет проверяться самой функцией по завершающему нулю
+	' пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
+	' пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ utf8 пїЅ WString
+	' -1 пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ
 	Dim UsernamePasswordKey As WString * (UserNamePasswordCapacity + 1) = Any
 	Dim DecodedLength As Long = MultiByteToWideChar( _
 		CP_UTF8, _
@@ -298,7 +306,7 @@ Private Function WebSiteHttpAuthUtil( _
 	)
 	UsernamePasswordKey[DecodedLength] = Characters.NullChar
 
-	' Теперь pColonChar хранит в себе указатель на разделитель-двоеточие
+	' пїЅпїЅпїЅпїЅпїЅпїЅ pColonChar пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ-пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 	Dim pColonChar As WString Ptr = StrChrW(@UsernamePasswordKey, Characters.Colon)
 	If pColonChar = NULL Then
 		HeapSysFreeString(pHeaderAuthorization)
@@ -1222,7 +1230,7 @@ Private Function WriteDirectoryListingFile( _
 			End Scope
 
 			If pFilesInDir[i].IsDirectory Then
-				' <a href="ссылка/">ссылка/</a>
+				' <a href="пїЅпїЅпїЅпїЅпїЅпїЅ/">пїЅпїЅпїЅпїЅпїЅпїЅ/</a>
 				lstrcatW(@pFilesInDir[i].FileName, WStr("/"))
 			End If
 
@@ -1354,7 +1362,7 @@ Private Function GetDirectoryListing( _
 	Dim hListingFile As HANDLE = CreateFileW( _
 		pFileName, _
 		GENERIC_WRITE, _
-		FILE_SHARE_READ Or FILE_SHARE_WRITE Or FILE_SHARE_DELETE, _
+		FILE_SHARE_Read Or FILE_SHARE_WRITE Or FILE_SHARE_DELETE, _
 		NULL, _
 		CREATE_ALWAYS, _
 		FILE_ATTRIBUTE_TEMPORARY Or FILE_FLAG_DELETE_ON_CLOSE, _
@@ -1577,6 +1585,14 @@ Private Sub InitializeWebSite( _
 	self->ReservedFileBytes = 0
 	self->IsMoved = False
 	self->UseSsl = False
+	' ---------- init CGI fields ----------
+	self->CgiEnabled = FALSE
+	self->CgiExtensions = NULL
+	self->CgiTimeout = 3000
+	self->CgiMaxInputSize = 1048576
+	self->CgiMaxOutputSize = 1048576
+	self->CgiInterpreters = NULL
+	self->CgiAllowedDirs = NULL
 
 End Sub
 
@@ -1599,6 +1615,9 @@ Private Sub UnInitializeWebSite( _
 	If self->pIProcessorCollection Then
 		IHttpProcessorCollection_Release(self->pIProcessorCollection)
 	End If
+	HeapSysFreeString(self->CgiExtensions)
+	HeapSysFreeString(self->CgiInterpreters)
+	HeapSysFreeString(self->CgiAllowedDirs)
 
 End Sub
 
@@ -2278,6 +2297,126 @@ Private Function WebSiteNeedDllProcessing( _
 
 End Function
 
+' -----------------------------------------------------------
+' CGI getters / setters (private)
+' -----------------------------------------------------------
+
+Private Function WebSiteGetCgiEnabled( _
+		ByVal self As WebSite Ptr, _
+		ByVal pEnabled As BOOL Ptr _
+	)As HRESULT
+
+	*pEnabled = self->CgiEnabled
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiExtensions( _
+		ByVal self As WebSite Ptr, _
+		ByVal ppExtensions As HeapBSTR Ptr _
+	)As HRESULT
+
+	HeapSysAddRefString(self->CgiExtensions)
+	*ppExtensions = self->CgiExtensions
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiTimeout( _
+		ByVal self As WebSite Ptr, _
+		ByVal pdwTimeout As DWORD Ptr _
+	)As HRESULT
+
+	*pdwTimeout = self->CgiTimeout
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiMaxInputSize( _
+		ByVal self As WebSite Ptr, _
+		ByVal pdwMaxInput As DWORD Ptr _
+	)As HRESULT
+
+	*pdwMaxInput = self->CgiMaxInputSize
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiMaxOutputSize( _
+		ByVal self As WebSite Ptr, _
+		ByVal pdwMaxOutput As DWORD Ptr _
+	)As HRESULT
+
+	*pdwMaxOutput = self->CgiMaxOutputSize
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiInterpreter( _
+		ByVal self As WebSite Ptr, _
+		ByVal pszExt As WString Ptr, _
+		ByVal ppInterpreter As HeapBSTR Ptr _
+	)As HRESULT
+
+	Dim interpreters As HeapBSTR = self->CgiInterpreters
+	If interpreters = NULL Then
+		*ppInterpreter = NULL
+		Return S_OK
+	End If
+
+	Dim interpretersLen As Integer = SysStringLen(interpreters)
+
+	' Build search pattern: ".py=" (ext + "=")
+	Dim pszSearch As WString * 64 = Any
+	lstrcpyW(@pszSearch, pszExt)
+	lstrcatW(@pszSearch, WStr("="))
+	Dim searchLen As Integer = lstrlenW(@pszSearch)
+
+	' Search for the extension= token
+	Dim i As Integer = 0
+	Do While i <= interpretersLen - searchLen
+		' Check if extension= matches at position i using length-limited compare
+		If CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE, _
+			@interpreters[i], searchLen, _
+			@pszSearch, searchLen _
+		) = CSTR_EQUAL Then
+			' Check if this is a valid token boundary:
+			' either at start of string, or preceded by '=' or ','
+			If i = 0 OrElse interpreters[i - 1] = Characters.EqualsSign OrElse interpreters[i - 1] = Characters.Comma Then
+				' Found! Extract interpreter value after the '=' that follows the extension
+				Dim pValue As WString Ptr = @interpreters[i + searchLen]
+				Dim pEnd As WString Ptr = StrChrW(pValue, Characters.Comma)
+				Dim valueLen As Integer
+				If pEnd Then
+					valueLen = CInt(pEnd - pValue)
+				Else
+					valueLen = interpretersLen - (Cast(Integer, pValue) - Cast(Integer, interpreters))
+				End If
+
+				Dim bstrInterpreter As HeapBSTR = CreateHeapStringLen(self->pIMemoryAllocator, pValue, valueLen)
+				*ppInterpreter = bstrInterpreter
+				Return S_OK
+			End If
+		End If
+		i += 1
+	Loop
+
+	*ppInterpreter = NULL
+	Return S_OK
+
+End Function
+
+Private Function WebSiteGetCgiAllowedDirs( _
+		ByVal self As WebSite Ptr, _
+		ByVal ppDirs As HeapBSTR Ptr _
+	)As HRESULT
+
+	HeapSysAddRefString(self->CgiAllowedDirs)
+	*ppDirs = self->CgiAllowedDirs
+	Return S_OK
+
+End Function
+
 Private Function MutableWebSiteSetHostName( _
 		ByVal self As WebSite Ptr, _
 		ByVal pHost As HeapBSTR _
@@ -2545,13 +2684,87 @@ Private Function WebSiteSetPassword( _
 
 End Function
 
+' --------- CGI setters ---------
+Private Function WebSiteSetCgiEnabled( _
+		ByVal self As WebSite Ptr, _
+		ByVal Enabled As BOOL _
+	)As HRESULT
+
+	self->CgiEnabled = Enabled
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiExtensions( _
+		ByVal self As WebSite Ptr, _
+		ByVal pExtensions As HeapBSTR _
+	)As HRESULT
+
+	LET_HEAPSYSSTRING(self->CgiExtensions, pExtensions)
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiTimeout( _
+		ByVal self As WebSite Ptr, _
+		ByVal dwTimeout As DWORD _
+	)As HRESULT
+
+	self->CgiTimeout = dwTimeout
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiMaxInputSize( _
+		ByVal self As WebSite Ptr, _
+		ByVal dwMaxInput As DWORD _
+	)As HRESULT
+
+	self->CgiMaxInputSize = dwMaxInput
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiMaxOutputSize( _
+		ByVal self As WebSite Ptr, _
+		ByVal dwMaxOutput As DWORD _
+	)As HRESULT
+
+	self->CgiMaxOutputSize = dwMaxOutput
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiInterpreters( _
+		ByVal self As WebSite Ptr, _
+		ByVal pInterpreters As HeapBSTR _
+	)As HRESULT
+
+	LET_HEAPSYSSTRING(self->CgiInterpreters, pInterpreters)
+	Return S_OK
+
+End Function
+
+Private Function WebSiteSetCgiAllowedDirs( _
+		ByVal self As WebSite Ptr, _
+		ByVal pDirs As HeapBSTR _
+	)As HRESULT
+
+	LET_HEAPSYSSTRING(self->CgiAllowedDirs, pDirs)
+	Return S_OK
+
+End Function
+
+' -----------------------------------------------------------
+' IMutableWebSite wrappers (IUnknown)
+' -----------------------------------------------------------
 
 Private Function IMutableWebSiteQueryInterface( _
 		ByVal self As IWebSite Ptr, _
 		ByVal riid As REFIID, _
-		ByVal ppvObject As Any Ptr Ptr _
+		ByVal ppv As Any Ptr Ptr _
 	)As HRESULT
-	Return WebSiteQueryInterface(CONTAINING_RECORD(self, WebSite, lpVtbl), riid, ppvObject)
+	Return WebSiteQueryInterface(CONTAINING_RECORD(self, WebSite, lpVtbl), riid, ppv)
 End Function
 
 Private Function IMutableWebSiteAddRef( _
@@ -2565,6 +2778,10 @@ Private Function IMutableWebSiteRelease( _
 	)As ULONG
 	Return WebSiteRelease(CONTAINING_RECORD(self, WebSite, lpVtbl))
 End Function
+
+' -----------------------------------------------------------
+' IMutableWebSite wrappers (getters for existing methods)
+' -----------------------------------------------------------
 
 Private Function IMutableWebSiteGetHostName( _
 		ByVal self As IWebSite Ptr, _
@@ -2631,6 +2848,10 @@ Private Function IMutableWebSiteGetProcessorCollectionWeakPtr( _
 	)As HRESULT
 	Return WebSiteGetProcessorCollectionWeakPtr(CONTAINING_RECORD(self, WebSite, lpVtbl), ppResult)
 End Function
+
+' -----------------------------------------------------------
+' IMutableWebSite wrappers (setters for existing methods)
+' -----------------------------------------------------------
 
 Private Function IMutableWebSiteSetHostName( _
 		ByVal self As IWebSite Ptr, _
@@ -2709,18 +2930,18 @@ Private Function IMutableWebSiteSetConnectBindPort( _
 	Return WebSiteSetConnectBindPort(CONTAINING_RECORD(self, WebSite, lpVtbl), ConnectBindPort)
 End Function
 
-Private Function IMutableWebSiteSetDefaultFileName( _
-		ByVal self As IWebSite Ptr, _
-		ByVal DefaultFileName As HeapBSTR _
-	)As HRESULT
-	Return WebSiteSetDefaultFileName(CONTAINING_RECORD(self, WebSite, lpVtbl), DefaultFileName)
-End Function
-
 Private Function IMutableWebSiteSetUseSsl( _
 		ByVal self As IWebSite Ptr, _
 		ByVal UseSsl As Boolean _
 	)As HRESULT
 	Return WebSiteSetUseSsl(CONTAINING_RECORD(self, WebSite, lpVtbl), UseSsl)
+End Function
+
+Private Function IMutableWebSiteSetDefaultFileName( _
+		ByVal self As IWebSite Ptr, _
+		ByVal DefaultFileName As HeapBSTR _
+	)As HRESULT
+	Return WebSiteSetDefaultFileName(CONTAINING_RECORD(self, WebSite, lpVtbl), DefaultFileName)
 End Function
 
 Private Function IMutableWebSetReservedFileBytes( _
@@ -2781,6 +3002,109 @@ Private Function IMutableWebSiteSetPassword( _
 	Return WebSiteSetPassword(CONTAINING_RECORD(self, WebSite, lpVtbl), pPassword)
 End Function
 
+' -----------------------------------------------------------
+' IMutableWebSite wrappers (add CGI ones)
+' -----------------------------------------------------------
+
+Private Function IMutableWebSiteGetCgiEnabled( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pEnabled As BOOL Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiEnabled(CONTAINING_RECORD(self, WebSite, lpVtbl), pEnabled)
+End Function
+
+Private Function IMutableWebSiteGetCgiExtensions( _
+		ByVal self As IWebSite Ptr, _
+		ByVal ppExtensions As HeapBSTR Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiExtensions(CONTAINING_RECORD(self, WebSite, lpVtbl), ppExtensions)
+End Function
+
+Private Function IMutableWebSiteGetCgiTimeout( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwTimeout As DWORD Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiTimeout(CONTAINING_RECORD(self, WebSite, lpVtbl), pdwTimeout)
+End Function
+
+Private Function IMutableWebSiteGetCgiMaxInputSize( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwMaxInput As DWORD Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiMaxInputSize(CONTAINING_RECORD(self, WebSite, lpVtbl), pdwMaxInput)
+End Function
+
+Private Function IMutableWebSiteGetCgiMaxOutputSize( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pdwMaxOutput As DWORD Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiMaxOutputSize(CONTAINING_RECORD(self, WebSite, lpVtbl), pdwMaxOutput)
+End Function
+
+Private Function IMutableWebSiteGetCgiInterpreter( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pszExt As WString Ptr, _
+		ByVal ppInterpreter As HeapBSTR Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiInterpreter(CONTAINING_RECORD(self, WebSite, lpVtbl), pszExt, ppInterpreter)
+End Function
+
+Private Function IMutableWebSiteGetCgiAllowedDirs( _
+		ByVal self As IWebSite Ptr, _
+		ByVal ppDirs As HeapBSTR Ptr _
+	)As HRESULT
+	Return WebSiteGetCgiAllowedDirs(CONTAINING_RECORD(self, WebSite, lpVtbl), ppDirs)
+End Function
+
+Private Function IMutableWebSiteSetCgiEnabled( _
+		ByVal self As IWebSite Ptr, _
+		ByVal Enabled As BOOL _
+	)As HRESULT
+	Return WebSiteSetCgiEnabled(CONTAINING_RECORD(self, WebSite, lpVtbl), Enabled)
+End Function
+
+Private Function IMutableWebSiteSetCgiExtensions( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pExtensions As HeapBSTR _
+	)As HRESULT
+	Return WebSiteSetCgiExtensions(CONTAINING_RECORD(self, WebSite, lpVtbl), pExtensions)
+End Function
+
+Private Function IMutableWebSiteSetCgiTimeout( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwTimeout As DWORD _
+	)As HRESULT
+	Return WebSiteSetCgiTimeout(CONTAINING_RECORD(self, WebSite, lpVtbl), dwTimeout)
+End Function
+
+Private Function IMutableWebSiteSetCgiMaxInputSize( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwMaxInput As DWORD _
+	)As HRESULT
+	Return WebSiteSetCgiMaxInputSize(CONTAINING_RECORD(self, WebSite, lpVtbl), dwMaxInput)
+End Function
+
+Private Function IMutableWebSiteSetCgiMaxOutputSize( _
+		ByVal self As IWebSite Ptr, _
+		ByVal dwMaxOutput As DWORD _
+	)As HRESULT
+	Return WebSiteSetCgiMaxOutputSize(CONTAINING_RECORD(self, WebSite, lpVtbl), dwMaxOutput)
+End Function
+
+Private Function IMutableWebSiteSetCgiInterpreters( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pInterpreters As HeapBSTR _
+	)As HRESULT
+	Return WebSiteSetCgiInterpreters(CONTAINING_RECORD(self, WebSite, lpVtbl), pInterpreters)
+End Function
+
+Private Function IMutableWebSiteSetCgiAllowedDirs( _
+		ByVal self As IWebSite Ptr, _
+		ByVal pDirs As HeapBSTR _
+	)As HRESULT
+	Return WebSiteSetCgiAllowedDirs(CONTAINING_RECORD(self, WebSite, lpVtbl), pDirs)
+End Function
+
 Dim GlobalWebSiteVirtualTable As Const IWebSiteVirtualTable = Type( _
 	@IMutableWebSiteQueryInterface, _
 	@IMutableWebSiteAddRef, _
@@ -2813,5 +3137,19 @@ Dim GlobalWebSiteVirtualTable As Const IWebSiteVirtualTable = Type( _
 	@IMutableWebSiteSetGetAllFiles, _
 	@IMutableWebSiteSetAllMethods, _
 	@IMutableWebSiteSetUserName, _
-	@IMutableWebSiteSetPassword _
+	@IMutableWebSiteSetPassword, _
+	@IMutableWebSiteGetCgiEnabled, _
+	@IMutableWebSiteGetCgiExtensions, _
+	@IMutableWebSiteGetCgiTimeout, _
+	@IMutableWebSiteGetCgiMaxInputSize, _
+	@IMutableWebSiteGetCgiMaxOutputSize, _
+	@IMutableWebSiteGetCgiInterpreter, _
+	@IMutableWebSiteGetCgiAllowedDirs, _
+	@IMutableWebSiteSetCgiEnabled, _
+	@IMutableWebSiteSetCgiExtensions, _
+	@IMutableWebSiteSetCgiTimeout, _
+	@IMutableWebSiteSetCgiMaxInputSize, _
+	@IMutableWebSiteSetCgiMaxOutputSize, _
+	@IMutableWebSiteSetCgiInterpreters, _
+	@IMutableWebSiteSetCgiAllowedDirs _
 )
