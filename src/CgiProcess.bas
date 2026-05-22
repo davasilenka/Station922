@@ -141,7 +141,9 @@ End Function
 
 Sub CgiProcess.Terminate()
     If hProcess <> INVALID_HANDLE_VALUE Then
-        TerminateProcess(hProcess, 1)
+        If WaitForSingleObject(hProcess, 0) <> WAIT_OBJECT_0 Then
+            TerminateProcess(hProcess, 1)
+        End If
     End If
 End Sub
 

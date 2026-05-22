@@ -653,6 +653,39 @@ Private Sub LogCgiEvent( _
 	LogWriteEntry(Reason, pwszText, @vd)
 End Sub
 
+' --------------- Helper: create an empty MemoryStream for error responses ---------------
+Private Function CgiReturnErrorResponse( _
+        ByVal pAlloc As IMalloc Ptr, _
+        ByVal pResponse As IServerResponse Ptr, _
+        ByVal pWriter As IHttpAsyncWriter Ptr, _
+        ByVal ppIBuffer As IAttributedAsyncStream Ptr Ptr _
+    )As HRESULT
+
+    Dim pIMemoryBuf As IMemoryStream Ptr = Any
+    Dim hrCreate As HRESULT = CreateMemoryStream(pAlloc, @IID_IMemoryStream, @pIMemoryBuf)
+    If FAILED(hrCreate) Then
+        *ppIBuffer = NULL
+        Return S_OK
+    End If
+
+    Dim pBuf As Any Ptr = Any
+    IMemoryStream_AllocBuffer(pIMemoryBuf, 0, @pBuf)
+
+    Dim Mime As MimeType = Any
+    With Mime
+        .ContentType = ContentTypes.TextHtml
+        .CharsetWeakPtr = NULL
+        .Format = MimeFormats.Binary
+    End With
+    IMemoryStream_SetContentType(pIMemoryBuf, @Mime)
+
+    IHttpAsyncWriter_SetBuffer(pWriter, CPtr(IAttributedAsyncStream Ptr, pIMemoryBuf))
+    IHttpAsyncWriter_Prepare(pWriter, pResponse, 0, FileAccess.ReadAccess)
+
+    *ppIBuffer = CPtr(IAttributedAsyncStream Ptr, pIMemoryBuf)
+    Return S_OK
+End Function
+
 ' --------------- Prepare (main CGI processing) ---------------
 Private Function HttpCgiProcessorPrepare( _
 		ByVal self As HttpCgiProcessor Ptr, _
@@ -695,10 +728,10 @@ Private Function HttpCgiProcessorPrepare( _
 		End If
 	End Scope
 
-	If ScriptName = NULL Then
-		IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.NotFound)
-		Return S_OK
-	End If
+    If ScriptName = NULL Then
+        IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.NotFound)
+        Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
+    End If
 
 	' Check extension against CgiExtensions
 	Scope
@@ -727,20 +760,20 @@ Private Function HttpCgiProcessorPrepare( _
 
 	' Check if file exists
 	Dim FileAttrs As DWORD = GetFileAttributesW(@PhysicalPath)
-	If FileAttrs = INVALID_FILE_ATTRIBUTES Then
-		HeapSysFreeString(QueryString)
-		HeapSysFreeString(ScriptName)
-		IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.NotFound)
-		Return S_OK
-	End If
+    If FileAttrs = INVALID_FILE_ATTRIBUTES Then
+        HeapSysFreeString(QueryString)
+        HeapSysFreeString(ScriptName)
+        IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.NotFound)
+        Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
+    End If
 
 	' Check if it's a directory
-	If FileAttrs And FILE_ATTRIBUTE_DIRECTORY Then
-		HeapSysFreeString(QueryString)
-		HeapSysFreeString(ScriptName)
-		IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.Forbidden)
-		Return S_OK
-	End If
+    If FileAttrs And FILE_ATTRIBUTE_DIRECTORY Then
+        HeapSysFreeString(QueryString)
+        HeapSysFreeString(ScriptName)
+        IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.Forbidden)
+        Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
+    End If
 
 	' === Step 4: Check CgiAllowedDirs ===
 	Scope
@@ -749,13 +782,13 @@ Private Function HttpCgiProcessorPrepare( _
 		If AllowedDirs Then
 			If SysStringLen(AllowedDirs) > 0 Then
 				Dim PathBuf As WString * (MAX_PATH + 1) = Any
-				If IsCgiPathAllowed(@PhysicalPath, AllowedDirs, @PathBuf) = FALSE Then
-					HeapSysFreeString(AllowedDirs)
-					HeapSysFreeString(QueryString)
-					HeapSysFreeString(ScriptName)
-					IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.Forbidden)
-					Return S_OK
-				End If
+                If IsCgiPathAllowed(@PhysicalPath, AllowedDirs, @PathBuf) = FALSE Then
+                    HeapSysFreeString(AllowedDirs)
+                    HeapSysFreeString(QueryString)
+                    HeapSysFreeString(ScriptName)
+                    IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.Forbidden)
+                    Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
+                End If
 			End If
 			HeapSysFreeString(AllowedDirs)
 		End If
@@ -893,16 +926,20 @@ Private Function HttpCgiProcessorPrepare( _
 			Dim BytesWritten As DWORD = Any
 			Dim dwToWrite As DWORD = Cast(DWORD, PreloadedLen)
 			If Cast(DWORD, ContentLen) < dwToWrite Then dwToWrite = Cast(DWORD, ContentLen)
-			WriteFile(proc->hStdinWrite, pPreloadedBytes, dwToWrite, @BytesWritten, NULL)
-		End If
-	End If
-	' Close stdin to signal EOF to CGI process
-	If proc->hStdinWrite <> INVALID_HANDLE_VALUE Then
-		CloseHandle(proc->hStdinWrite)
-		proc->hStdinWrite = INVALID_HANDLE_VALUE
-	End If
+            WriteFile(proc->hStdinWrite, pPreloadedBytes, dwToWrite, @BytesWritten, NULL)
+        End If
+        ' If body was not preloaded but content expected,
+        ' close stdin so process gets EOF instead of hanging
+        CloseHandle(proc->hStdinWrite)
+        proc->hStdinWrite = INVALID_HANDLE_VALUE
+    Else
+        ' No body - close stdin immediately
+        CloseHandle(proc->hStdinWrite)
+        proc->hStdinWrite = INVALID_HANDLE_VALUE
+    End If
+    ' Stdin is closed — process will get EOF if body data was incomplete
 
-	' TEMP DEBUG
+    ' TEMP DEBUG
 	Scope
 		Dim hTr As HANDLE = CreateFileW(WStr("_tr1d.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
 		If hTr <> INVALID_HANDLE_VALUE Then
@@ -961,35 +998,40 @@ Private Function HttpCgiProcessorPrepare( _
 			Delete proc
 			HeapSysFreeString(ScriptName)
 			IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
-			LogCgiEvent(self, WStr("CGI process timed out"), LogEntryType.Warning)
-			Return E_FAIL
+            LogCgiEvent(self, WStr("CGI process timed out"), LogEntryType.Warning)
+            IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.GatewayTimeout)
+            Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
 		End If
 
 		' Check available data in pipe
 		Dim dwAvail As DWORD = 0
-		If PeekNamedPipe(proc->hStdoutRead, NULL, 0, NULL, @dwAvail, NULL) = 0 Then
-			Dim peekErr As DWORD = GetLastError()
-			If peekErr = ERROR_BROKEN_PIPE Then
-				bProcessExited = True
-				Exit Do
-			End If
-		End If
+        If PeekNamedPipe(proc->hStdoutRead, NULL, 0, NULL, @dwAvail, NULL) = 0 Then
+            If WaitForSingleObject(proc->hProcess, 0) = WAIT_OBJECT_0 Then
+                bProcessExited = True
+                Exit Do
+            End If
+            bReadOk = False
+            Exit Do
+        End If
 
 		If dwAvail > 0 Then
 			Dim dwRemaining As DWORD = dwMaxOutput - dwTotalRead
 			Dim dwToRead As DWORD = dwAvail
 			If dwToRead > dwRemaining Then dwToRead = dwRemaining
 			Dim dwBytesRead As DWORD = Any
-			If ReadFile(proc->hStdoutRead, @pOutputBuf[dwTotalRead], dwToRead, @dwBytesRead, NULL) = 0 Then
-				Dim readErr As DWORD = GetLastError()
-				If readErr = ERROR_BROKEN_PIPE Then
-					bProcessExited = True
-					Exit Do
-				Else
-					bReadOk = False
-					Exit Do
-				End If
-			End If
+            If ReadFile(proc->hStdoutRead, @pOutputBuf[dwTotalRead], dwToRead, @dwBytesRead, NULL) = 0 Then
+                Dim readErr As DWORD = GetLastError()
+                If readErr = ERROR_BROKEN_PIPE Then
+                    bProcessExited = True
+                    Exit Do
+                End If
+                If WaitForSingleObject(proc->hProcess, 0) = WAIT_OBJECT_0 Then
+                    bProcessExited = True
+                    Exit Do
+                End If
+                bReadOk = False
+                Exit Do
+            End If
 			If dwBytesRead = 0 Then
 				Exit Do
 			End If
@@ -1007,50 +1049,64 @@ Private Function HttpCgiProcessorPrepare( _
 		End If
 	Loop
 
-	' If process exited, drain any remaining data in pipe
-	If bProcessExited Then
-		Do While dwTotalRead < dwMaxOutput
-			Dim dwBytesRead As DWORD = Any
-			Dim dwRemaining As DWORD = dwMaxOutput - dwTotalRead
-			Dim dwToRead As DWORD = 4096
-			If dwToRead > dwRemaining Then dwToRead = dwRemaining
-			If ReadFile(proc->hStdoutRead, @pOutputBuf[dwTotalRead], dwToRead, @dwBytesRead, NULL) = 0 Then
-				Dim drainErr As DWORD = GetLastError()
-				If drainErr = ERROR_BROKEN_PIPE Then Exit Do
-				bReadOk = False
-				Exit Do
-			End If
-			If dwBytesRead = 0 Then Exit Do
-			dwTotalRead += dwBytesRead
-		Loop
-	End If
+    ' If process exited with zero output, skip pipe operations entirely
+    ' (pipe may be in transitional state after process exit)
+    If bProcessExited = FALSE OrElse dwTotalRead > 0 Then
+        ' If process exited, drain any remaining data in pipe
+        If bProcessExited Then
+            Do While dwTotalRead < dwMaxOutput
+                Dim dwBytesRead As DWORD = Any
+                Dim dwRemaining As DWORD = dwMaxOutput - dwTotalRead
+                Dim dwToRead As DWORD = 4096
+                If dwToRead > dwRemaining Then dwToRead = dwRemaining
+                If ReadFile(proc->hStdoutRead, @pOutputBuf[dwTotalRead], dwToRead, @dwBytesRead, NULL) = 0 Then
+                    Dim drainErr As DWORD = GetLastError()
+                    If drainErr = ERROR_BROKEN_PIPE Then Exit Do
+                    If WaitForSingleObject(proc->hProcess, 0) = WAIT_OBJECT_0 Then Exit Do
+                    bReadOk = False
+                    Exit Do
+                End If
+                If dwBytesRead = 0 Then Exit Do
+                dwTotalRead += dwBytesRead
+            Loop
+        End If
 
-	' Check if max output exceeded
-	If bReadOk = FALSE Then
-		IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
-		proc->Terminate()
-		Delete proc
-		HeapSysFreeString(ScriptName)
-		LogCgiEvent(self, WStr("CGI stdout read error"), LogEntryType.Error)
-		Return E_FAIL
-	End If
+        ' Check if max output exceeded
+        If bReadOk = FALSE Then
+            IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
+            proc->Terminate()
+            Delete proc
+            HeapSysFreeString(ScriptName)
+            LogCgiEvent(self, WStr("CGI stdout read error"), LogEntryType.Error)
+            Return E_FAIL
+        End If
 
-	' Check if there's more data (process still has data but we exceeded max)
-	If dwTotalRead >= dwMaxOutput Then
-		Dim dwMoreBytes As DWORD = Any
-		Dim dwAvail As DWORD = 0
-		If PeekNamedPipe(proc->hStdoutRead, NULL, 0, NULL, @dwAvail, NULL) AndAlso dwAvail > 0 Then
-			' There is more data - exceed limit
-			IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
-			proc->Terminate()
-			Delete proc
-			HeapSysFreeString(ScriptName)
-			LogCgiEvent(self, WStr("CGI output exceeded max size"), LogEntryType.Warning)
-			Return E_FAIL
-		End If
-	End If
+        ' Check if there's more data (process still has data but we exceeded max)
+        If dwTotalRead >= dwMaxOutput Then
+            Dim dwMoreBytes As DWORD = Any
+            Dim dwAvail As DWORD = 0
+            If PeekNamedPipe(proc->hStdoutRead, NULL, 0, NULL, @dwAvail, NULL) AndAlso dwAvail > 0 Then
+                ' There is more data - exceed limit
+                IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
+                proc->Terminate()
+                Delete proc
+                HeapSysFreeString(ScriptName)
+                LogCgiEvent(self, WStr("CGI output exceeded max size"), LogEntryType.Warning)
+                Return E_FAIL
+            End If
+        End If
+    End If
 
-	pOutputBuf[dwTotalRead] = 0
+    ' Fast path: process exited with zero output - direct 502
+    If bProcessExited AndAlso dwTotalRead = 0 Then
+        Delete proc
+        IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
+        HeapSysFreeString(ScriptName)
+        IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.BadGateway)
+        Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
+    End If
+
+    pOutputBuf[dwTotalRead] = 0
 
 	' TEMP DEBUG
 	Scope
@@ -1081,9 +1137,9 @@ Private Function HttpCgiProcessorPrepare( _
 			Delete proc
 			HeapSysFreeString(ScriptName)
 			IMalloc_Free(self->pIMemoryAllocator, pOutputBuf)
-			LogCgiEvent(self, WStr("CGI process timed out after reading output"), LogEntryType.Warning)
-			IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.GatewayTimeout)
-			Return S_OK
+            LogCgiEvent(self, WStr("CGI process timed out after reading output"), LogEntryType.Warning)
+            IServerResponse_SetStatusCode(pResponse, HttpStatusCodes.GatewayTimeout)
+            Return CgiReturnErrorResponse(pAlloc, pResponse, pWriter, ppIBuffer)
 		End If
 	End Scope
 
