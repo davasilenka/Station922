@@ -652,6 +652,34 @@ Private Sub LogCgiEvent( _
 	LogWriteEntry(Reason, pwszText, @vd)
 End Sub
 
+' --------------- Stderr drain thread ---------------
+Private Function StderrDrainThreadProc(ByVal lpParam As LPVOID) As DWORD
+	Dim hStderrRead As HANDLE = Cast(HANDLE, lpParam)
+	Const STDERR_BUFFER_SIZE As DWORD = 8192
+	Dim buffer(STDERR_BUFFER_SIZE) As Byte
+	Dim dwTotalRead As DWORD = 0
+
+	Do
+		Dim dwBytesRead As DWORD = Any
+		If ReadFile(hStderrRead, @buffer(0), STDERR_BUFFER_SIZE, @dwBytesRead, NULL) = 0 Then
+			Exit Do
+		End If
+		If dwBytesRead = 0 Then
+			Exit Do
+		End If
+		dwTotalRead += dwBytesRead
+	Loop
+
+	If dwTotalRead > 0 Then
+		Dim v As VARIANT : v.vt = VT_EMPTY
+		Dim wszText As WString * 256
+		wsprintfW(@wszText, !"CGI stderr: %u bytes", dwTotalRead)
+		LogWriteEntry(LogEntryType.Warning, @wszText, @v)
+	End If
+
+	Return 0
+End Function
+
 ' --------------- Helper: create an empty MemoryStream for error responses ---------------
 Private Function CgiReturnErrorResponse( _
         ByVal pAlloc As IMalloc Ptr, _
@@ -859,6 +887,15 @@ Private Function HttpCgiProcessorPrepare( _
 		HeapSysFreeString(ScriptName)
 		LogCgiEvent(self, WStr("StartProcess failed"), LogEntryType.Error)
 		Return E_FAIL
+	End If
+
+	' Start stderr drain thread to prevent pipe buffer from blocking the CGI script.
+	' The thread exits when the stderr pipe is closed (process exits or handle closed).
+	Dim hDrainThread As HANDLE = CreateThread(NULL, 0, @StderrDrainThreadProc, Cast(LPVOID, proc->hStderrRead), 0, NULL)
+	If hDrainThread = NULL Then
+		LogCgiEvent(self, WStr("Failed to create stderr drain thread"), LogEntryType.Warning)
+	Else
+		CloseHandle(hDrainThread)
 	End If
 
 	' === Step 8: Get timeout and max output size ===
