@@ -18,7 +18,6 @@
 #include once "HttpTraceProcessor.bi"
 #include once "HttpCgiProcessor.bi"
 #include once "CgiProcess.bi"
-#include once "CgiAsyncTask.bi"
 #include once "WebSiteCollection.bi"
 #include once "WebServer.bi"
 
@@ -550,7 +549,7 @@ Public Function Station922Initialize()As HRESULT
 	End Scope
 
 	Scope
-		' -- регистрация HttpCgiProcessor ПЕРЕД статическими процессорами --
+		' -- пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ HttpCgiProcessor пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ --
 		Dim pICgiProcessor As IHttpAsyncProcessor Ptr = NULL
 		Dim CgiKey As HeapBSTR = CreatePermanentHeapStringLen(pIMemoryAllocator, WStr("CGI"), Len(WStr("CGI")))
 		If CgiKey Then

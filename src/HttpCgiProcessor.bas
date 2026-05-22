@@ -6,7 +6,6 @@
 #include once "win\shlwapi.bi"
 #include once "crt.bi"
 #include once "CgiProcess.bi"
-#include once "CgiAsyncTask.bi"
 #include once "Logger.bi"
 #include once "ArrayStringWriter.bi"
 #include once "MemoryAsyncStream.bi"

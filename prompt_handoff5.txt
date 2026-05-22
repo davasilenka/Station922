@@ -1,0 +1,33 @@
+Прочитай session_handoff5.md — там полный контекст, текущее состояние 30/32 и список ВСЕХ изменений.
+
+Твоя цель: довести тесты до 32/32.
+
+Текущий коммит: `31e36cb`.
+
+## Два оставшихся FAIL:
+
+1. **POST body empty** — `post_echo.py echoes body: got=b''`. Тело POST-запроса (17 байт) не доходит до CGI-процесса. `GetPreloadedBytes` возвращает 0. HTTP-ридер останавливает чтение после нахождения `\r\n\r\n`.
+
+2. **Content-Type: None** — `hello.py Content-Type is text/plain: got: None`. CGI-заголовок `Content-Type: text/plain` парсится, но не попадает в HTTP-ответ. Баг в MIME-блоке: `GetContentTypeOfMimeType` вызывается с параметрами в неправильном порядке (она конвертирует enum→строка, а не строка→enum).
+
+## Важные ограничения:
+- Чтение с IOCP-сокета из синхронного `Prepare()` ЛОМАЕТ сервер. `recv()`, `ioctlsocket(FIONBIO)+recv()`, `IBaseAsyncStream_BeginRead/EndRead` — все три подхода проверены и ведут к краху.
+- `IHttpAsyncReader_GetRequestedBytes` возвращает ПОЛНЫЙ сырой буфер ридера — можно искать `\r\n\r\n` вручную.
+
+## Что разрешено:
+- Менять `src/HttpCgiProcessor.bas` (основной файл с багами)
+- Добавлять методы в интерфейсы (`IHttpAsyncReader`), если нужно
+- Исследовать ЛЮБЫЕ файлы проекта для понимания архитектуры
+
+## Сборка и тест:
+```powershell
+Get-Process -Name "Station922_x64" -ErrorAction SilentlyContinue | Stop-Process -Force
+$env:PATH = "C:\FreeBASIC-1.10.1-winlibs-gcc-9.3.0\bin\win64;C:\FreeBASIC-1.10.1-winlibs-gcc-9.3.0;C:\Program Files\mingw64\bin;$env:PATH"
+$fbc = "C:\FreeBASIC-1.10.1-winlibs-gcc-9.3.0\fbc64.exe"
+& $fbc -m Station922 -l crypt32 -x Station922_x64.exe -O 3 -gen gcc src\*.bas src\*.RC
+Start-Process -FilePath "C:\Station922\Station922_x64.exe" -WorkingDirectory "C:\Station922" -WindowStyle Hidden
+Start-Sleep -Seconds 2
+python test_cgi.py
+```
+
+Важно: сначала проведи диагностику (проверь гипотезы из handoff), потом правь код. Не меняй то, что уже работает (30 тестов должны остаться PASS).
