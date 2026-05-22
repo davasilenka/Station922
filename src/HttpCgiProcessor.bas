@@ -855,23 +855,6 @@ Private Function HttpCgiProcessorPrepare( _
 	IMalloc_Free(self->pIMemoryAllocator, pEnvBlock)
 	HeapSysFreeString(Interpreter)
 
-	' TEMP DEBUG
-	Scope
-		Dim hTr As HANDLE = CreateFileW(WStr("_tr1.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-		If hTr <> INVALID_HANDLE_VALUE Then
-			Dim trBuf As WString * 256 = Any
-			Dim trBytes As DWORD = Any
-			If FAILED(hrStart) Then
-				lstrcpyW(@trBuf, WStr("StartProcess FAILED"))
-			Else
-				wsprintfW(@trBuf, WStr("StartProcess OK pid=%u"), proc->dwProcessId)
-			End If
-			Dim trLen As Integer = lstrlenW(@trBuf)
-			WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-			CloseHandle(hTr)
-		End If
-	End Scope
-
 	If FAILED(hrStart) Then
 		Delete proc
 		HeapSysFreeString(ScriptName)
@@ -886,85 +869,70 @@ Private Function HttpCgiProcessorPrepare( _
 	Dim dwMaxOutput As DWORD = Any
 	IWebSite_GetCgiMaxOutputSize(pWebSite, @dwMaxOutput)
 
-	' TEMP DEBUG
-	Scope
-		Dim hTr As HANDLE = CreateFileW(WStr("_tr1c.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-		If hTr <> INVALID_HANDLE_VALUE Then
-			Dim trBuf As WString * 256 = Any
-			Dim trBytes As DWORD = Any
-			wsprintfW(@trBuf, WStr("Step8: timeout=%u maxOut=%u"), dwTimeout, dwMaxOutput)
-			Dim trLen As Integer = lstrlenW(@trBuf)
-			WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-			CloseHandle(hTr)
-		End If
-	End Scope
-
 	' === Step 9: Write request body to stdin ===
-	' Note: For full POST body streaming, a proper async stdin reader would be needed
-	' Currently writes only preloaded bytes (body data received with HTTP headers)
 	Dim ContentLen As LongInt = Any
 	IClientRequest_GetContentLength(pRequest, @ContentLen)
 	If ContentLen > 0 Then
+		Dim dwTotalWritten As DWORD = 0
+
 		Dim PreloadedLen As Integer = Any
 		Dim pPreloadedBytes As UByte Ptr = Any
 		IHttpAsyncReader_GetPreloadedBytes(pReader, @PreloadedLen, @pPreloadedBytes)
-
-		' TEMP DEBUG
-		Scope
-			Dim hTr As HANDLE = CreateFileW(WStr("_trStdin.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-			If hTr <> INVALID_HANDLE_VALUE Then
-				Dim trBuf As WString * 256 = Any
-				Dim trBytes As DWORD = Any
-				wsprintfW(@trBuf, WStr("Stdin: ContentLen=%I64u PreloadedLen=%d pBytes=%p"), ContentLen, PreloadedLen, pPreloadedBytes)
-				Dim trLen As Integer = lstrlenW(@trBuf)
-				WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-				CloseHandle(hTr)
-			End If
-		End Scope
-
 		If PreloadedLen > 0 AndAlso pPreloadedBytes Then
 			Dim BytesWritten As DWORD = Any
 			Dim dwToWrite As DWORD = Cast(DWORD, PreloadedLen)
 			If Cast(DWORD, ContentLen) < dwToWrite Then dwToWrite = Cast(DWORD, ContentLen)
-            WriteFile(proc->hStdinWrite, pPreloadedBytes, dwToWrite, @BytesWritten, NULL)
-        End If
-        ' If body was not preloaded but content expected,
-        ' close stdin so process gets EOF instead of hanging
-        CloseHandle(proc->hStdinWrite)
-        proc->hStdinWrite = INVALID_HANDLE_VALUE
-    Else
-        ' No body - close stdin immediately
-        CloseHandle(proc->hStdinWrite)
-        proc->hStdinWrite = INVALID_HANDLE_VALUE
-    End If
-    ' Stdin is closed — process will get EOF if body data was incomplete
-
-    ' TEMP DEBUG
-	Scope
-		Dim hTr As HANDLE = CreateFileW(WStr("_tr1d.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-		If hTr <> INVALID_HANDLE_VALUE Then
-			Dim trBuf As WString * 256 = Any
-			Dim trBytes As DWORD = Any
-			lstrcpyW(@trBuf, WStr("Step9: stdin closed"))
-			Dim trLen As Integer = lstrlenW(@trBuf)
-			WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-			CloseHandle(hTr)
+			WriteFile(proc->hStdinWrite, pPreloadedBytes, dwToWrite, @BytesWritten, NULL)
+			dwTotalWritten = BytesWritten
 		End If
-	End Scope
+
+		If dwTotalWritten < Cast(DWORD, ContentLen) Then
+			Dim dwRemaining As DWORD = Cast(DWORD, ContentLen) - dwTotalWritten
+			Dim pStream As IBaseAsyncStream Ptr = Any
+			IHttpAsyncReader_GetBaseStream(pReader, @pStream)
+			If pStream Then
+				Dim pReadBuf As UByte Ptr = IMalloc_Alloc(self->pIMemoryAllocator, dwRemaining + 1)
+				If pReadBuf Then
+					Dim pAsyncResult As IAsyncResult Ptr = Any
+					Dim hrBegin As HRESULT = IBaseAsyncStream_BeginRead( _
+						pStream, pReadBuf, dwRemaining, NULL, NULL, @pAsyncResult)
+					If SUCCEEDED(hrBegin) AndAlso pAsyncResult Then
+						Dim bCompleted As Boolean = False
+						Dim dwBytesRead As DWORD = 0
+						Dim dwErr As DWORD = 0
+						Dim dwPollStart As DWORD = GetTickCount()
+						Do
+							IAsyncResult_GetCompleted(pAsyncResult, @dwBytesRead, @bCompleted, @dwErr)
+							If bCompleted = False Then
+								' Bound the poll loop so a client that drops mid-upload doesn't hang a worker.
+								If GetTickCount() - dwPollStart > 5000 Then Exit Do
+								Sleep(5)
+							End If
+						Loop While bCompleted = False
+						If dwBytesRead > 0 Then
+							Dim bw As DWORD = Any
+							If proc->hStdinWrite <> INVALID_HANDLE_VALUE Then
+								WriteFile(proc->hStdinWrite, pReadBuf, dwBytesRead, @bw, NULL)
+							End If
+						End If
+						IBaseAsyncStream_EndRead(pStream, pAsyncResult, @dwBytesRead)
+					End If
+					IMalloc_Free(self->pIMemoryAllocator, pReadBuf)
+				End If
+				IBaseAsyncStream_Release(pStream)
+			End If
+		End If
+
+		CloseHandle(proc->hStdinWrite)
+		proc->hStdinWrite = INVALID_HANDLE_VALUE
+	Else
+		CloseHandle(proc->hStdinWrite)
+		proc->hStdinWrite = INVALID_HANDLE_VALUE
+	End If
 
 	' === Step 10: Read stdout concurrently with process execution ===
 	Dim pOutputBuf As Byte Ptr = IMalloc_Alloc(self->pIMemoryAllocator, dwMaxOutput + 1)
 	If pOutputBuf = NULL Then
-		' TEMP DEBUG
-		Scope
-			Dim hTr As HANDLE = CreateFileW(WStr("_trNULL.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-			If hTr <> INVALID_HANDLE_VALUE Then
-				Dim trBytes As DWORD = Any
-				Dim trMsg As WString * 128 = WStr("ALLOC NULL")
-				WriteFile(hTr, @trMsg, lstrlenW(@trMsg) * SizeOf(WString), @trBytes, NULL)
-				CloseHandle(hTr)
-			End If
-		End Scope
 		proc->Terminate()
 		Delete proc
 		HeapSysFreeString(ScriptName)
@@ -976,19 +944,6 @@ Private Function HttpCgiProcessorPrepare( _
 	Dim bReadOk As Boolean = True
 	Dim bProcessExited As Boolean = False
 	Dim startTicks As DWORD = GetTickCount()
-
-	' TEMP DEBUG
-	Scope
-		Dim hTr As HANDLE = CreateFileW(WStr("_tr1b.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-		If hTr <> INVALID_HANDLE_VALUE Then
-			Dim trBuf As WString * 256 = Any
-			Dim trBytes As DWORD = Any
-			wsprintfW(@trBuf, WStr("PRELOOP hProcess=%p hRead=%p maxOut=%u timeOut=%u"), proc->hProcess, proc->hStdoutRead, dwMaxOutput, dwTimeout)
-			Dim trLen As Integer = lstrlenW(@trBuf)
-			WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-			CloseHandle(hTr)
-		End If
-	End Scope
 
 	Do While dwTotalRead < dwMaxOutput
 		' Check timeout first
@@ -1006,6 +961,13 @@ Private Function HttpCgiProcessorPrepare( _
 		' Check available data in pipe
 		Dim dwAvail As DWORD = 0
         If PeekNamedPipe(proc->hStdoutRead, NULL, 0, NULL, @dwAvail, NULL) = 0 Then
+            ' ERROR_BROKEN_PIPE means the child closed its stdout write end (EOF).
+            ' Treat as a normal end-of-output condition; the drain ReadFile below
+            ' will pull any buffered bytes and itself signal broken-pipe when done.
+            If GetLastError() = ERROR_BROKEN_PIPE Then
+                bProcessExited = True
+                Exit Do
+            End If
             If WaitForSingleObject(proc->hProcess, 0) = WAIT_OBJECT_0 Then
                 bProcessExited = True
                 Exit Do
@@ -1108,20 +1070,6 @@ Private Function HttpCgiProcessorPrepare( _
 
     pOutputBuf[dwTotalRead] = 0
 
-	' TEMP DEBUG
-	Scope
-		Dim hTr As HANDLE = CreateFileW(WStr("_tr2.txt"), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
-		If hTr <> INVALID_HANDLE_VALUE Then
-			Dim trBuf As WString * 256 = Any
-			Dim trBytes As DWORD = Any
-			Dim dwElapsed As DWORD = GetTickCount() - startTicks
-			wsprintfW(@trBuf, WStr("LOOP_END totalRead=%u bReadOk=%d bProcEx=%d elapsed=%u maxOut=%u"), dwTotalRead, bReadOk, bProcessExited, dwElapsed, dwMaxOutput)
-			Dim trLen As Integer = lstrlenW(@trBuf)
-			WriteFile(hTr, @trBuf, trLen * SizeOf(WString), @trBytes, NULL)
-			CloseHandle(hTr)
-		End If
-	End Scope
-
 	' === Step 11: Ensure process has exited (wait with short timeout) ===
 	Scope
 		Dim dwRemainingTimeout As DWORD = dwTimeout
@@ -1194,19 +1142,16 @@ Private Function HttpCgiProcessorPrepare( _
 		Dim bHasLocation As Boolean = False
 		Dim HeaderStart As DWORD = 0
 
-		' Zero-terminate the header section for string operations
-		pOutputBuf[dwHeaderEnd] = 0
-
+		Dim ScanLimit As DWORD = dwHeaderEnd + 1
 		Do While HeaderStart < dwHeaderEnd
-			' Find \r\n line ending
 			Dim LineEnd As DWORD = HeaderStart
-			Do While LineEnd < dwHeaderEnd
+			Do While LineEnd < ScanLimit
 				If pOutputBuf[LineEnd] = 13 AndAlso pOutputBuf[LineEnd + 1] = 10 Then
 					Exit Do
 				End If
 				LineEnd += 1
 			Loop
-			If LineEnd >= dwHeaderEnd Then Exit Do
+			If LineEnd >= ScanLimit Then Exit Do
 
 			pOutputBuf[LineEnd] = 0
 			Dim pLine As ZString Ptr = CPtr(ZString Ptr, @pOutputBuf[HeaderStart])
@@ -1226,10 +1171,11 @@ Private Function HttpCgiProcessorPrepare( _
 					Dim wName As WString * 128 = Any
 					Dim wValue As WString * 1024 = Any
 					Dim NameLen As DWORD = Cast(DWORD, pColon - pLine)
-					MultiByteToWideChar(CP_UTF8, 0, pLine, NameLen, @wName, 127)
-					wName[127] = 0
-					MultiByteToWideChar(CP_UTF8, 0, pValue, lstrlenA(pValue), @wValue, 1023)
-					wValue[1023] = 0
+					Dim NameWcharsWritten As Integer = MultiByteToWideChar(CP_UTF8, 0, pLine, NameLen, @wName, 127)
+					If NameWcharsWritten < 0 Then NameWcharsWritten = 0
+					If NameWcharsWritten > 127 Then NameWcharsWritten = 127
+					wName[NameWcharsWritten] = 0
+					MultiByteToWideChar(CP_UTF8, 0, pValue, -1, @wValue, 1023)
 
 					' Check Status header
 					If lstrcmpiW(@wName, WStr("Status")) = CompareResultZero Then
@@ -1335,12 +1281,23 @@ Private Function HttpCgiProcessorPrepare( _
 				.Format = MimeFormats.Binary
 			End With
 		Else
-			' Try to parse Content-Type from response headers
+			' Parse Content-Type from CGI response headers — determine Mime
 			Dim pContentTypeHeader As HeapBSTR = Any
 			IServerResponse_GetHttpHeader(pResponse, HttpResponseHeaders.HeaderContentType, @pContentTypeHeader)
 			If pContentTypeHeader Then
-				GetContentTypeOfMimeType(pContentTypeHeader, @Mime)
-				HeapSysFreeString(pContentTypeHeader)
+				If lstrcmpiW(pContentTypeHeader, WStr("text/plain")) = CompareResultZero Then
+					Mime.ContentType = ContentTypes.TextPlain
+				ElseIf lstrcmpiW(pContentTypeHeader, WStr("text/html")) = CompareResultZero Then
+					Mime.ContentType = ContentTypes.TextHtml
+				ElseIf lstrcmpiW(pContentTypeHeader, WStr("text/css")) = CompareResultZero Then
+					Mime.ContentType = ContentTypes.TextCss
+				ElseIf lstrcmpiW(pContentTypeHeader, WStr("text/xml")) = CompareResultZero Then
+					Mime.ContentType = ContentTypes.TextXml
+				Else
+					Mime.ContentType = ContentTypes.TextHtml
+				End If
+				Mime.CharsetWeakPtr = NULL
+				Mime.Format = MimeFormats.Binary
 			Else
 				With Mime
 					.ContentType = ContentTypes.TextHtml
@@ -1380,6 +1337,27 @@ Private Function HttpCgiProcessorPrepare( _
 
 	' Prepare the writer with the response
 	Scope
+		If Not bNph Then
+			Dim pCt As HeapBSTR = Any
+			IServerResponse_GetHttpHeader(pResponse, HttpResponseHeaders.HeaderContentType, @pCt)
+			If pCt Then
+				Dim MimeT As MimeType = Any
+				MimeT.CharsetWeakPtr = NULL
+				MimeT.Format = MimeFormats.Binary
+				If lstrcmpiW(pCt, WStr("text/plain")) = CompareResultZero Then
+					MimeT.ContentType = ContentTypes.TextPlain
+				ElseIf lstrcmpiW(pCt, WStr("text/html")) = CompareResultZero Then
+					MimeT.ContentType = ContentTypes.TextHtml
+				ElseIf lstrcmpiW(pCt, WStr("text/css")) = CompareResultZero Then
+					MimeT.ContentType = ContentTypes.TextCss
+				ElseIf lstrcmpiW(pCt, WStr("text/xml")) = CompareResultZero Then
+					MimeT.ContentType = ContentTypes.TextXml
+				Else
+					MimeT.ContentType = ContentTypes.TextHtml
+				End If
+				IServerResponse_SetMimeType(pResponse, @MimeT)
+			End If
+		End If
 		Dim BodyLen As LongInt = CLngInt(dwBodyLen)
 		Dim hrPrepare As HRESULT = IHttpAsyncWriter_Prepare( _
 			pWriter, _

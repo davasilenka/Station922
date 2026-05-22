@@ -2,6 +2,28 @@
 #include once "crt.bi"
 #include once "Logger.bi"
 
+' Serialize CreateProcessW + pipe handle creation across worker threads.
+' Without this, concurrent CGI launches can leak inheritable pipe handles between
+' processes, which keeps unrelated pipes from closing and corrupts stdout/stderr.
+' Lazy initialization via InterlockedCompareExchange: 0=fresh, 1=initializing, 2=ready.
+Dim Shared gCgiCreateProcessCs As CRITICAL_SECTION
+Dim Shared gCgiCsState As Long = 0
+
+Private Sub EnsureCgiCsInit()
+    Do
+        Dim oldState As Long = InterlockedCompareExchange(@gCgiCsState, 1, 0)
+        If oldState = 0 Then
+            InitializeCriticalSection(@gCgiCreateProcessCs)
+            InterlockedExchange(@gCgiCsState, 2)
+            Exit Do
+        ElseIf oldState = 2 Then
+            Exit Do
+        Else
+            Sleep(0)
+        End If
+    Loop
+End Sub
+
 Constructor CgiProcess()
     hProcess = INVALID_HANDLE_VALUE
     hStdinWrite = INVALID_HANDLE_VALUE
@@ -25,6 +47,8 @@ Function CgiProcess.StartProcess( _
     ByVal pszWorkDir As LPCWSTR _
 ) As HRESULT
 
+    EnsureCgiCsInit()
+
     Dim sa As SECURITY_ATTRIBUTES
     sa.nLength = SizeOf(SECURITY_ATTRIBUTES)
     sa.lpSecurityDescriptor = NULL
@@ -38,36 +62,46 @@ Function CgiProcess.StartProcess( _
     Dim hReadStdoutLocal As HANDLE
     Dim hReadStderrLocal As HANDLE
 
+    Dim pi As PROCESS_INFORMATION
+    Dim startResult As HRESULT = S_OK
+    Dim createProcessErr As DWORD = 0
+
+    EnterCriticalSection(@gCgiCreateProcessCs)
+
     If CreatePipe(@hReadStdin, @hWriteStdinLocal, @sa, 0) = 0 Then
-        Dim errCode As DWORD = GetLastError()
+        createProcessErr = GetLastError()
+        startResult = E_FAIL
+        LeaveCriticalSection(@gCgiCreateProcessCs)
         Dim buffer As WString * 256
-        wsprintfW(@buffer, !"CreatePipe for stdin failed, error %u", errCode)
+        wsprintfW(@buffer, !"CreatePipe for stdin failed, error %u", createProcessErr)
         Dim v As VARIANT : v.vt = VT_EMPTY
         LogWriteEntry(LogEntryType.Error, @buffer, @v)
         Return E_FAIL
     End If
 
     If CreatePipe(@hReadStdoutLocal, @hWriteStdout, @sa, 0) = 0 Then
-        Dim errCode As DWORD = GetLastError()
-        Dim buffer As WString * 256
-        wsprintfW(@buffer, !"CreatePipe for stdout failed, error %u", errCode)
-        Dim v As VARIANT : v.vt = VT_EMPTY
-        LogWriteEntry(LogEntryType.Error, @buffer, @v)
+        createProcessErr = GetLastError()
         CloseHandle(hReadStdin)
         CloseHandle(hWriteStdinLocal)
+        LeaveCriticalSection(@gCgiCreateProcessCs)
+        Dim buffer As WString * 256
+        wsprintfW(@buffer, !"CreatePipe for stdout failed, error %u", createProcessErr)
+        Dim v As VARIANT : v.vt = VT_EMPTY
+        LogWriteEntry(LogEntryType.Error, @buffer, @v)
         Return E_FAIL
     End If
 
     If CreatePipe(@hReadStderrLocal, @hWriteStderr, @sa, 0) = 0 Then
-        Dim errCode As DWORD = GetLastError()
-        Dim buffer As WString * 256
-        wsprintfW(@buffer, !"CreatePipe for stderr failed, error %u", errCode)
-        Dim v As VARIANT : v.vt = VT_EMPTY
-        LogWriteEntry(LogEntryType.Error, @buffer, @v)
+        createProcessErr = GetLastError()
         CloseHandle(hReadStdin)
         CloseHandle(hWriteStdinLocal)
         CloseHandle(hReadStdoutLocal)
         CloseHandle(hWriteStdout)
+        LeaveCriticalSection(@gCgiCreateProcessCs)
+        Dim buffer As WString * 256
+        wsprintfW(@buffer, !"CreatePipe for stderr failed, error %u", createProcessErr)
+        Dim v As VARIANT : v.vt = VT_EMPTY
+        LogWriteEntry(LogEntryType.Error, @buffer, @v)
         Return E_FAIL
     End If
 
@@ -83,30 +117,35 @@ Function CgiProcess.StartProcess( _
     si.hStdOutput = hWriteStdout
     si.hStdError = hWriteStderr
 
-    Dim pi As PROCESS_INFORMATION
-
     If CreateProcessW(pszExe, pszArgs, NULL, NULL, TRUE, _
         CREATE_NO_WINDOW Or CREATE_UNICODE_ENVIRONMENT, _
         pszEnv, pszWorkDir, @si, @pi) = 0 Then
 
-        Dim errCode As DWORD = GetLastError()
-        Dim buffer As WString * 256
-        wsprintfW(@buffer, !"CreateProcessW failed, error %u", errCode)
-        Dim v As VARIANT : v.vt = VT_EMPTY
-        LogWriteEntry(LogEntryType.Error, @buffer, @v)
-
+        createProcessErr = GetLastError()
         CloseHandle(hReadStdin)
         CloseHandle(hWriteStdinLocal)
         CloseHandle(hReadStdoutLocal)
         CloseHandle(hWriteStdout)
         CloseHandle(hReadStderrLocal)
         CloseHandle(hWriteStderr)
+        LeaveCriticalSection(@gCgiCreateProcessCs)
+
+        Dim buffer As WString * 256
+        wsprintfW(@buffer, !"CreateProcessW failed, error %u", createProcessErr)
+        Dim v As VARIANT : v.vt = VT_EMPTY
+        LogWriteEntry(LogEntryType.Error, @buffer, @v)
         Return E_FAIL
     End If
 
+    ' Close the child-side handles in the parent before leaving the critical
+    ' section: this ensures that any concurrent CreateProcessW running in
+    ' another worker thread cannot inherit these handles. (Inheritance happens
+    ' at the moment CreateProcessW snapshots the current process handle table.)
     CloseHandle(hReadStdin)
     CloseHandle(hWriteStdout)
     CloseHandle(hWriteStderr)
+
+    LeaveCriticalSection(@gCgiCreateProcessCs)
 
     hProcess = pi.hProcess
     hStdinWrite = hWriteStdinLocal

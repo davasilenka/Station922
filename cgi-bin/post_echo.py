@@ -9,6 +9,6 @@ except Exception:
 
 data = sys.stdin.buffer.read(content_length)
 
-print("Content-Type: application/octet-stream")
-print()
+sys.stdout.buffer.write(b"Content-Type: application/octet-stream\r\n\r\n")
 sys.stdout.buffer.write(data)
+sys.stdout.buffer.flush()
